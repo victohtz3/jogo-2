@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini Car Battle Royale</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <h1>CAR BATTLE SURVIVAL</h1>
+    <div id="gameUi">Abates: <span id="kills">0</span> | Vida: <span id="health">100</span>%</div>
+    
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    
+    <div class="instructions">
+        <strong>Controles:</strong> WASD ou Setas para dirigir o carro | <strong>Clique com o Mouse:</strong> Atirar nos inimigos
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
