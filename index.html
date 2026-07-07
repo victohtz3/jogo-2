@@ -1,0 +1,351 @@
+// --- CONFIGURAÇÃO AUDIO (Web Audio API para som de freio) ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playBrakeSound() {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    
+    let oscillator = audioCtx.createOscillator();
+    let gainNode = audioCtx.createGain();
+    let filter = audioCtx.createBiquadFilter();
+
+    oscillator.type = 'sawtooth';
+    oscillator.frequency.setValueAtTime(120, audioCtx.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.4);
+
+    filter.type = 'bandpass';
+    filter.frequency.value = 800;
+
+    gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+
+    oscillator.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.4);
+}
+
+// --- CONFIGURAÇÃO VISUAL CENA (Three.js) ---
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x0a0a14, 0.012); // Neblina mais escura de cidade
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(scene.fog.color);
+renderer.shadowMap.enabled = true;
+container.appendChild(renderer.domElement);
+
+// Iluminação da Cidade
+const ambientLight = new THREE.AmbientLight(0x222233, 0.6);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0x557799, 0.5);
+dirLight.position.set(100, 300, 100);
+scene.add(dirLight);
+
+const streetLight = new THREE.PointLight(0xffaa44, 2, 80);
+scene.add(streetLight);
+
+// --- PISTA GRANDE ---
+const trackRadius = 400;
+const trackWidth = 30;
+const innerRadius = trackRadius - trackWidth;
+const outerRadius = trackRadius + trackWidth;
+
+const trackGeometry = new THREE.RingGeometry(innerRadius, outerRadius, 128);
+const trackMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0x111111, 
+    roughness: 0.15, 
+    metalness: 0.7,
+    side: THREE.DoubleSide 
+});
+const track = new THREE.Mesh(trackGeometry, trackMaterial);
+track.rotation.x = Math.PI / 2;
+scene.add(track);
+
+// Linha central
+const lineGeometry = new THREE.RingGeometry(trackRadius - 0.2, trackRadius + 0.2, 128);
+const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffaa00, side: THREE.DoubleSide });
+const centerLine = new THREE.Mesh(lineGeometry, lineMaterial);
+centerLine.rotation.x = Math.PI / 2;
+centerLine.position.y = 0.01;
+scene.add(centerLine);
+
+// --- GERADOR DE CIDADE (Prédios, Árvores e Muros) ---
+const cityGroup = new THREE.Group();
+scene.add(cityGroup);
+
+// Criar Muros de Proteção (Barreiras de Colisão Invisíveis/Visuais)
+function createWall(radius, height) {
+    const wallGeom = new THREE.CylinderGeometry(radius, radius, height, 64, 1, true);
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.7, side: THREE.DoubleSide });
+    const wall = new THREE.Mesh(wallGeom, wallMat);
+    wall.position.y = height / 2;
+    cityGroup.add(wall);
+}
+createWall(innerRadius, 2); // Muro Interno
+createWall(outerRadius, 2); // Muro Externo
+
+// Espalhar Prédios e Árvores aleatoriamente fora da pista
+for (let i = 0; i < 350; i++) {
+    // Escolhe um ângulo e uma distância fora da zona de rodagem da pista
+    const angle = Math.random() * Math.PI * 2;
+    let distance = 0;
+    
+    if (Math.random() > 0.5) {
+        distance = innerRadius - 20 - Math.random() * 200; // Lado de dentro do anel
+    } else {
+        distance = outerRadius + 20 + Math.random() * 200; // Lado de fora do anel
+    }
+
+    const x = Math.sin(angle) * distance;
+    const z = Math.cos(angle) * distance;
+
+    if (Math.random() > 0.4) {
+        // --- GERAR PRÉDIO ---
+        const h = 30 + Math.random() * 70;
+        const w = 15 + Math.random() * 20;
+        const d = 15 + Math.random() * 20;
+        
+        const buildGeom = new THREE.BoxGeometry(w, h, d);
+        // Cores neon de janelas de cidade de noite
+        const buildMat = new THREE.MeshStandardMaterial({ 
+            color: Math.random() > 0.5 ? 0x1a2a3a : 0x111116,
+            roughness: 0.2
+        });
+        const building = new THREE.Mesh(buildGeom, buildMat);
+        building.position.set(x, h/2, z);
+        cityGroup.add(building);
+
+        // Luzes das janelas simplificadas (detalhes brilhantes)
+        const glowGeom = new THREE.BoxGeometry(w + 0.1, h * 0.8, d + 0.1);
+        const glowMat = new THREE.MeshBasicMaterial({
+            color: Math.random() > 0.5 ? 0xffcc44 : 0x4488ff,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.05
+        });
+        const glow = new THREE.Mesh(glowGeom, glowMat);
+        glow.position.copy(building.position);
+        cityGroup.add(glow);
+    } else {
+        // --- GERAR ÁRVORE ---
+        const treeGroup = new THREE.Group();
+        
+        const trunkGeom = new THREE.CylinderGeometry(0.4, 0.6, 5);
+        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a2f13 });
+        const trunk = new THREE.Mesh(trunkGeom, trunkMat);
+        trunk.position.y = 2.5;
+        treeGroup.add(trunk);
+
+        const leavesGeom = new THREE.ConeGeometry(3, 7, 8);
+        const leavesMat = new THREE.MeshStandardMaterial({ color: 0x133d1c, roughness: 0.9 });
+        const leaves = new THREE.Mesh(leavesGeom, leavesMat);
+        leaves.position.y = 6;
+        treeGroup.add(leaves);
+
+        treeGroup.position.set(x, 0, z);
+        cityGroup.add(treeGroup);
+    }
+}
+
+// --- SISTEMA DE CHUVA ---
+const rainCount = 9000;
+const rainGeometry = new THREE.BufferGeometry();
+const rainPositions = new Float32Array(rainCount * 3);
+
+for(let i=0; i<rainCount*3; i+=3) {
+    rainPositions[i] = (Math.random() - 0.5) * 600;
+    rainPositions[i+1] = Math.random() * 120;
+    rainPositions[i+2] = (Math.random() - 0.5) * 600;
+}
+rainGeometry.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+const rainMaterial = new THREE.PointsMaterial({ color: 0x888899, size: 0.18, transparent: true, opacity: 0.5 });
+const rain = new THREE.Points(rainGeometry, rainMaterial);
+scene.add(rain);
+
+// --- CONFIGURAÇÃO DOS CARROS ---
+const carGroup = new THREE.Group();
+scene.add(carGroup);
+
+const carSpecs = {
+    esportivo: { color: 0xd50000, maxSpeed: 2.6, accel: 0.035, width: 2, height: 0.9, length: 4.5 },
+    musculo:   { color: 0xffd600, maxSpeed: 2.3, accel: 0.025, width: 2.2, height: 1.2, length: 5 },
+    futurista: { color: 0x00e676, maxSpeed: 2.8, accel: 0.04,  width: 1.9, height: 0.8, length: 4.6 },
+    policia:   { color: 0x222222, maxSpeed: 2.5, accel: 0.03,  width: 2.1, height: 1.1, length: 4.8 },
+    F1:        { color: 0x00b0ff, maxSpeed: 3.4, accel: 0.06,  width: 2.3, height: 0.6, length: 5.2 }
+};
+
+let currentCarBody;
+let currentType = 'esportivo';
+
+function buildCar(type) {
+    currentType = type;
+    if(currentCarBody) carGroup.remove(currentCarBody);
+    currentCarBody = new THREE.Group();
+
+    const spec = carSpecs[type];
+    const carMat = new THREE.MeshStandardMaterial({ color: spec.color, roughness: 0.15, metalness: 0.85 });
+
+    // Chassi Base
+    const bodyGeom = new THREE.BoxGeometry(spec.width, spec.height, spec.length);
+    const body = new THREE.Mesh(bodyGeom, carMat);
+    body.position.y = spec.height / 2 + 0.2;
+    currentCarBody.add(body);
+
+    // Giroflex da Polícia ou Detalhes Específicos
+    if(type === 'policia') {
+        const copLightGeom = new THREE.BoxGeometry(0.8, 0.15, 0.3);
+        const copLightMat = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // Vermelho
+        const copLight = new THREE.Mesh(copLightGeom, copLightMat);
+        copLight.position.set(0, spec.height + 0.2, 0);
+        currentCarBody.add(copLight);
+    }
+
+    // Rodas
+    const wheelGeom = new THREE.CylinderGeometry(0.4, 0.4, 0.4, 16);
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+    wheelGeom.rotateZ(Math.PI / 2);
+
+    const wPos = [
+        [-spec.width/2, 0.4, spec.length/3],  [spec.width/2, 0.4, spec.length/3],
+        [-spec.width/2, 0.4, -spec.length/3], [spec.width/2, 0.4, -spec.length/3]
+    ];
+    wPos.forEach(pos => {
+        const wheel = new THREE.Mesh(wheelGeom, wheelMat);
+        wheel.position.set(pos[0], pos[1], pos[2]);
+        currentCarBody.add(wheel);
+    });
+
+    carGroup.add(currentCarBody);
+}
+
+function resetCar() {
+    speed = 0;
+    carAngle = 0;
+    carGroup.position.set(trackRadius, 0, 0); // Volta para a linha de partida segura
+    
+    // Efeito Visual de Flash na Tela
+    document.body.classList.add('crash-flash');
+    setTimeout(() => document.body.classList.remove('crash-flash'), 400);
+}
+
+buildCar('esportivo');
+carGroup.position.set(trackRadius, 0, 0);
+
+// --- CONTROLES E FÍSICA ---
+let speed = 0;
+let carAngle = 0;
+const friction = 0.985;
+const keys = { w: false, s: false, a: false, d: false, space: false };
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'w') keys.w = true;
+    if (e.key === 'ArrowDown' || e.key.toLowerCase() === 's') keys.s = true;
+    if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') keys.a = true;
+    if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') keys.d = true;
+    if (e.key === ' ') { 
+        if(!keys.space && Math.abs(speed) > 0.5) playBrakeSound();
+        keys.space = true; 
+    }
+});
+
+window.addEventListener('keyup', (e) => {
+    if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'w') keys.w = false;
+    if (e.key === 'ArrowDown' || e.key.toLowerCase() === 's') keys.s = false;
+    if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') keys.a = false;
+    if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') keys.d = false;
+    if (e.key === ' ') keys.space = false;
+});
+
+document.getElementById('carSelect').addEventListener('change', (e) => {
+    buildCar(e.target.value);
+    resetCar();
+});
+
+// --- CRONÔMETRO ---
+let startTime = Date.now();
+setInterval(() => {
+    let elapsed = Math.floor((Date.now() - startTime) / 1000);
+    let mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    let secs = String(elapsed % 60).padStart(2, '0');
+    document.getElementById('timer').innerText = `${mins}:${secs}`;
+}, 1000);
+
+
+// --- LOOP PRINCIPAL DE ANIMAÇÃO ---
+function animate() {
+    requestAnimationFrame(animate);
+
+    // Chuva caindo
+    const positions = rain.geometry.attributes.position.array;
+    for(let i = 1; i < positions.length; i += 3) {
+        positions[i] -= 1.8;
+        if(positions[i] < 0) positions[i] = 120;
+    }
+    rain.geometry.attributes.position.needsUpdate = true;
+
+    // Física do Carro baseada no modelo selecionado
+    const spec = carSpecs[currentType];
+    if (keys.w) speed += spec.accel;
+    if (keys.s) speed -= spec.accel;
+    if (keys.space) speed *= 0.82; // Freio de mão eficiente
+
+    speed *= friction;
+
+    // Limitadores
+    if (speed > spec.maxSpeed) speed = spec.maxSpeed;
+    if (speed < -spec.maxSpeed/2) speed = -spec.maxSpeed/2;
+
+    if (Math.abs(speed) > 0.05) {
+        const direction = speed > 0 ? 1 : -1;
+        if (keys.a) carAngle += 0.026 * direction;
+        if (keys.d) carAngle -= 0.026 * direction;
+    }
+
+    carGroup.rotation.y = carAngle;
+    carGroup.position.x += Math.sin(carAngle) * speed;
+    carGroup.position.z += Math.cos(carAngle) * speed;
+
+    // --- DETECÇÃO DE COLISÃO COM OS MUROS DA CIDADE ---
+    // Calcula a distância matemática do carro até o centro orbital da pista (0,0)
+    const distanceFromCenter = Math.sqrt(carGroup.position.x ** 2 + carGroup.position.z ** 2);
+
+    // Se o carro cruzar a borda interna ou externa, houve colisão
+    if (distanceFromCenter <= innerRadius + 0.5 || distanceFromCenter >= outerRadius - 0.5) {
+        // Se estiver correndo rápido (acima de ~50 KM/H equivalentes), o carro bate forte e reinicia
+        if (Math.abs(speed) > 1.0) {
+            resetCar();
+        } else {
+            // Se estiver devagar, apenas rebate e para o carro
+            speed = -speed * 0.4;
+        }
+    }
+
+    // Painel de Velocidade
+    document.getElementById('speed').innerText = Math.round(Math.abs(speed) * 90);
+
+    // Câmera dinâmica atrás do veículo
+    const relativeCameraOffset = new THREE.Vector3(0, 3.8, -9.5);
+    const cameraOffset = relativeCameraOffset.applyMatrix4(carGroup.matrixWorld);
+    camera.position.x = THREE.MathUtils.lerp(camera.position.x, cameraOffset.x, 0.12);
+    camera.position.y = THREE.MathUtils.lerp(camera.position.y, cameraOffset.y, 0.12);
+    camera.position.z = THREE.MathUtils.lerp(camera.position.z, cameraOffset.z, 0.12);
+    camera.lookAt(carGroup.position);
+
+    // Acompanhamento da iluminação pública localizada
+    streetLight.position.set(carGroup.position.x, 12, carGroup.position.z + 2);
+
+    renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
